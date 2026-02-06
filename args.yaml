@@ -1,0 +1,20 @@
+# 打包参数配置文件
+# 修改此文件后运行 build_apk.py 即可生效
+
+# HTML 入口文件路径
+html: index.html
+
+# 应用图标路径
+icon: icon.png
+
+# 应用包名 (如 com.example.app)
+pkg: com.dada
+
+# 版本名称
+version: v3.0
+
+# 应用名称 (如果不填，默认读取 HTML <title>)
+name: 打答
+
+# 输出目录 (默认: HTML 同级目录)
+# out_dir: .

@@ -1,0 +1,42 @@
+# IDEs and Editors
+.idea/
+.vscode/
+.trae/
+*.iml
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Android / Gradle Build
+.gradle/
+build/
+local.properties
+.DS_Store
+
+# Generated Files and Artifacts
+*.apk
+*.idsig
+*.ap_
+*.dex
+*.class
+shell_build/
+android_shell/app/build/
+android_shell/.gradle/
+android_shell/build/
+
+# Keystores (Secrets)
+*.keystore
+*.jks
+debug-jks.keystore
+debug.keystore
+
+# Temporary Logs and Info
+*_info.txt
+temp.json
+dada_info.txt
+template_info.txt
