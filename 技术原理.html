@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>项目技术原理说明</title>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --accent-color: #3498db;
+            --text-color: #333;
+            --bg-color: #f4f7f6;
+            --card-bg: #ffffff;
+            --code-bg: #282c34;
+            --code-text: #abb2bf;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: var(--card-bg);
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--accent-color);
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+
+        h2 {
+            color: var(--primary-color);
+            margin-top: 40px;
+            padding-left: 10px;
+            border-left: 5px solid var(--accent-color);
+        }
+
+        h3 {
+            color: var(--primary-color);
+            margin-top: 25px;
+            font-size: 1.2em;
+        }
+
+        p {
+            margin-bottom: 15px;
+        }
+
+        strong {
+            color: #d35400;
+        }
+
+        ul {
+            padding-left: 20px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        code {
+            background-color: #f0f0f0;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            color: #c7254e;
+            font-size: 0.9em;
+        }
+
+        pre {
+            background-color: var(--code-bg);
+            color: var(--code-text);
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-size: 0.9em;
+        }
+
+        .step-badge {
+            display: inline-block;
+            background-color: var(--accent-color);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        .section-divider {
+            height: 1px;
+            background-color: #e0e0e0;
+            margin: 30px 0;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+            body {
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>项目技术原理说明</h1>
+
+        <h2>1. 项目概述</h2>
+        <p>本项目是一个<strong>静态 HTML 转 Android APK</strong> 的自动化构建工具。它不依赖 Android Studio 等庞大的 IDE，而是直接调用 Android SDK Build-tools 底层命令行工具，通过 Python 脚本串联整个构建流程，实现轻量级、快速打包。</p>
+
+        <div class="section-divider"></div>
+
+        <h2>2. 核心技术栈与工具</h2>
+
+        <h3>2.1 编程语言与环境</h3>
+        <ul>
+            <li><strong>Python 3</strong>: 控制构建逻辑、文件处理、正则替换和子进程调用。</li>
+            <li><strong>Java Development Kit (JDK) 1.8+</strong>: 用于编译 Java 代码和生成密钥库。</li>
+        </ul>
+
+        <h3>2.2 Android SDK Build-tools</h3>
+        <p>构建过程直接调用了以下底层工具：</p>
+        <ul>
+            <li><strong>aapt (Android Asset Packaging Tool)</strong>: 处理资源文件（AndroidManifest.xml, assets, res），生成 APK 包结构。</li>
+            <li><strong>d8 (DEX 编译器)</strong>: 将编译后的 Java <code>.class</code> 字节码转换为 Android 专用的 <code>.dex</code> (Dalvik Executable) 文件。</li>
+            <li><strong>zipalign</strong>: 对 APK 进行字节对齐优化，提高运行时的内存映射效率。</li>
+            <li><strong>apksigner</strong>: 对最终 APK 进行 V2/V3 签名，确保安装安全性。</li>
+        </ul>
+
+        <h3>2.3 其他工具</h3>
+        <ul>
+            <li><strong>javac</strong>: Java 编译器，将 <code>.java</code> 源码编译为 <code>.class</code> 文件。</li>
+            <li><strong>keytool</strong>: 生成 Java Keystore (JKS) 签名证书。</li>
+            <li><strong>Pillow (Python库)</strong>: 图像处理库，用于将用户提供的图标自动缩放为 Android 所需的各种尺寸（mipmap/drawable）。</li>
+        </ul>
+
+        <div class="section-divider"></div>
+
+        <h2>3. 自动化构建流程详解</h2>
+        <p>构建脚本 <code>build_apk.py</code> 的执行流程如下：</p>
+
+        <h3><span class="step-badge">Step 1</span>第一步：环境检查与配置解析</h3>
+        <ol>
+            <li>加载 <code>args.yaml</code> 配置文件或解析命令行参数。</li>
+            <li>自动探测 <code>ANDROID_HOME</code> 环境变量，定位 <code>aapt</code>, <code>d8</code>, <code>android.jar</code> 等关键文件路径。</li>
+        </ol>
+
+        <h3><span class="step-badge">Step 2</span>第二步：资源准备</h3>
+        <ol>
+            <li><strong>Manifest 处理</strong>: 读取 <code>android_shell</code> 中的模板 <code>AndroidManifest.xml</code>，动态注入/替换：
+                <ul>
+                    <li>包名 (<code>package</code>)</li>
+                    <li>应用名称 (<code>android:label</code>)</li>
+                    <li>版本号 (<code>android:versionName</code>)</li>
+                    <li>权限 (<code>&lt;uses-permission&gt;</code>, <code>&lt;uses-sdk&gt;</code>)</li>
+                    <li>图标引用 (<code>android:icon</code>)</li>
+                    <li>主题样式 (<code>android:theme</code>)</li>
+                </ul>
+            </li>
+            <li><strong>Web 资源复制</strong>: 将指定的 HTML 文件复制到 <code>assets/www/index.html</code>。</li>
+            <li><strong>图标生成</strong>: 使用 Pillow 将源图标调整为多种分辨率（mdpi 到 xxxhdpi），存入 <code>res/mipmap-*</code> 或 <code>res/drawable-*</code> 目录。</li>
+            <li><strong>样式生成</strong>: 动态生成 <code>res/values/styles.xml</code>，配置应用主题（如去除 ActionBar，设置启动背景色），优化启动体验。</li>
+        </ol>
+
+        <h3><span class="step-badge">Step 3</span>第三步：代码编译 (Java -> DEX)</h3>
+        <ol>
+            <li><strong>Java 编译</strong>: 调用 <code>javac</code> 编译 <code>MainActivity.java</code>。
+                <ul>
+                    <li><em>原理</em>: <code>MainActivity</code> 是一个原生 Activity，内部实例化一个 <code>WebView</code> 控件，配置 WebSettings（启用 JavaScript、DOM Storage），并加载 <code>file:///android_asset/www/index.html</code>。</li>
+                </ul>
+            </li>
+            <li><strong>DEX 转换</strong>: 调用 <code>d8</code> 将编译生成的 <code>.class</code> 文件转换为 <code>classes.dex</code>。</li>
+        </ol>
+
+        <h3><span class="step-badge">Step 4</span>第四步：打包与合成</h3>
+        <ol>
+            <li><strong>资源打包</strong>: 使用 <code>aapt package</code> 命令：
+                <ul>
+                    <li>编译 <code>AndroidManifest.xml</code> 为二进制格式。</li>
+                    <li>打包 <code>res</code> 资源和 <code>assets</code> 目录。</li>
+                    <li>生成初始的 <code>unsigned.apk</code>。</li>
+                </ul>
+            </li>
+            <li><strong>添加代码</strong>: 使用 <code>aapt add</code> 将 <code>classes.dex</code> 添加到 <code>unsigned.apk</code> 根目录。</li>
+        </ol>
+
+        <h3><span class="step-badge">Step 5</span>第五步：优化与签名</h3>
+        <ol>
+            <li><strong>对齐优化</strong>: 使用 <code>zipalign -p 4</code> 对 APK 进行 4 字节对齐。</li>
+            <li><strong>证书检查</strong>: 检查 <code>build/debug-jks.keystore</code> 是否存在，若不存在则调用 <code>keytool</code> 自动生成一个调试证书（JKS 格式，RSA 2048位）。</li>
+            <li><strong>应用签名</strong>: 使用 <code>apksigner</code> 对齐后的 APK 进行签名，生成最终的可安装包。</li>
+        </ol>
+
+        <div class="section-divider"></div>
+
+        <h2>4. 目录结构说明</h2>
+        <pre>
+App_generate/
+├── android_shell/              # Java 源码壳工程
+│   ├── app/src/main/
+│   │   ├── AndroidManifest.xml # 清单文件模板
+│   │   └── java/.../MainActivity.java  # WebView 容器源码
+├── build_apk.py                # 核心构建脚本
+├── args.yaml                   # 构建参数配置
+├── 技术原理.md                 # 本文档
+└── build/                      # 构建输出目录（包含临时文件、密钥库、生成的 APK）
+        </pre>
+    </div>
+</body>
+</html>

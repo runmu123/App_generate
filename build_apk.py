@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import datetime
 from pathlib import Path
 from typing import Optional, List
 
@@ -15,13 +16,55 @@ try:
 except ImportError:
     Image = None
 
+LOG_FILE: Optional[Path] = None
 
-def run_cmd(cmd: List[str], cwd: Optional[Path] = None) -> None:
+def ensure_dir(path: Path) -> None:
+    """
+    确保目录存在
+    """
+    path.mkdir(parents=True, exist_ok=True)
+
+def init_logging(base_dir: Path) -> None:
+    global LOG_FILE
+    log_dir = base_dir / "android_shell"
+    ensure_dir(log_dir)
+    LOG_FILE = log_dir / "building.log"
+    if not LOG_FILE.exists():
+        LOG_FILE.touch()
+
+def log_to_file(content: str) -> None:
+    if LOG_FILE:
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(f"[{timestamp}] {content}\n")
+        except Exception as e:
+            print(f"[WARN] 写入日志失败: {e}")
+
+def run_cmd(cmd: List[str], cwd: Optional[Path] = None, desc: str = "") -> None:
     """
     执行外部命令；失败直接抛出异常
     """
-    print(f"[CMD] {' '.join(cmd)}")
-    subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=True)
+    if desc:
+        print(f"[INFO] {desc}")
+    
+    cmd_str = ' '.join(cmd)
+    log_to_file(f"[CMD] {cmd_str}")
+    
+    if LOG_FILE:
+        try:
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] >>> STDOUT/STDERR:\n")
+                f.flush()
+                subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=True, stdout=f, stderr=subprocess.STDOUT)
+                f.write("\n")
+        except subprocess.CalledProcessError:
+            # 命令失败时，抛出异常前先记录
+            log_to_file("[ERROR] 命令执行失败，请查看上方日志详情。")
+            raise
+    else:
+        print(f"[CMD] {cmd_str}")
+        subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=True)
 
 
 def find_tool(candidate_paths: List[Path], fallback_cmd: Optional[str] = None) -> Optional[str]:
@@ -34,13 +77,6 @@ def find_tool(candidate_paths: List[Path], fallback_cmd: Optional[str] = None) -
     if fallback_cmd:
         return fallback_cmd
     return None
-
-
-def ensure_dir(path: Path) -> None:
-    """
-    确保目录存在
-    """
-    path.mkdir(parents=True, exist_ok=True)
 
 
 def read_text(path: Path) -> str:
@@ -136,8 +172,9 @@ def ensure_debug_keystore(base_dir: Path) -> Path:
     """
     确保存在用于签名的 debug JKS keystore
     """
-    ensure_dir(base_dir / "build")
-    ks = base_dir / "build" / "debug-jks.keystore"
+    build_dir = base_dir / "android_shell" /"build"
+    ensure_dir(build_dir)
+    ks = build_dir / "debug-jks.keystore"
     if not ks.exists():
         run_cmd([
             "keytool", "-genkey", "-storetype", "JKS",
@@ -146,7 +183,7 @@ def ensure_debug_keystore(base_dir: Path) -> Path:
             "-keyalg", "RSA", "-keysize", "2048",
             "-validity", "10000", "-alias", "androiddebugkey",
             "-dname", "CN=Android Debug,O=Android,C=US"
-        ])
+        ], desc="生成调试签名证书 (Debug Keystore)")
     return ks
 
 
@@ -154,6 +191,9 @@ def main():
     """
     命令行入口：使用 aapt+d8 快速从空壳工程打包
     """
+    base_dir = Path.cwd()
+    init_logging(base_dir)
+
     # 尝试加载 args.yaml 配置文件
     config = {}
     config_path = Path("args.yaml")
@@ -173,8 +213,7 @@ def main():
     parser.add_argument("--name", default=config.get("name"), help="软件名称")
     parser.add_argument("--out-dir", default=config.get("out_dir"), help="输出目录")
     args = parser.parse_args()
-
-    base_dir = Path.cwd()
+    
     html_path = Path(args.html).resolve()
     icon_path = Path(args.icon).resolve()
     
@@ -186,8 +225,6 @@ def main():
         sys.exit(1)
 
     # 软件名称与输出目录
-    # 由于删除了 TitleParser，这里如果没有 name 参数，将使用默认值 "App" 或报错
-    # 为了健壮性，若未提供 name，使用 "App"
     app_name = args.name or "App"
     
     out_dir = Path(args.out_dir).resolve() if args.out_dir else html_path.parent
@@ -195,9 +232,10 @@ def main():
     final_apk_name = f"{app_name}_{args.pkg}_{args.version}.apk"
     temp_build_name = f"build_temp_{args.pkg}.apk"
     final_apk = out_dir / final_apk_name
+    build_dir = base_dir / "android_shell" / "build"
     
-    ensure_dir(base_dir / "build")
-    temp_apk_path = base_dir / "build" / temp_build_name
+    ensure_dir(build_dir)
+    temp_apk_path = build_dir / temp_build_name
 
     # 探测工具：zipalign 与 apksigner
     zipalign = find_tool([
@@ -293,25 +331,25 @@ def main():
                 "-classpath", str(android_jar),
                 "-d", str(classes_dir),
                 str(src)
-            ])
+            ], desc="编译 Java 源码 (javac)")
             dex_out = tmpdir / "dex"
             ensure_dir(dex_out)
             class_files = [str(p) for p in classes_dir.rglob("*.class")]
             if not class_files:
                 print("未找到编译产生的 .class 文件")
                 sys.exit(1)
-            run_cmd([d8, "--min-api", "21", "--output", str(dex_out)] + class_files)
+            run_cmd([d8, "--lib", str(android_jar), "--min-api", "21", "--output", str(dex_out)] + class_files, desc="转换 DEX 字节码 (d8)")
             classes_dex = dex_out / "classes.dex"
 
         # aapt 打包 + 添加 dex
         try:
-            run_cmd([aapt, "package", "-f", "-M", str(manifest_tmp), "-I", str(android_jar), "-A", str(assets_dir), "-S", str(res_dir), "-F", str(unsigned_apk)])
+            run_cmd([aapt, "package", "-f", "-M", str(manifest_tmp), "-I", str(android_jar), "-A", str(assets_dir), "-S", str(res_dir), "-F", str(unsigned_apk)], desc="打包资源 (aapt)")
         except subprocess.CalledProcessError:
-            print("[WARN] 资源打包失败，回退为不包含 res 的打包（图标将不生效）")
-            run_cmd([aapt, "package", "-f", "-M", str(manifest_tmp), "-I", str(android_jar), "-A", str(assets_dir), "-F", str(unsigned_apk)])
+            log_to_file("[WARN] 资源打包失败，回退为不包含 res 的打包（图标将不生效）")
+            run_cmd([aapt, "package", "-f", "-M", str(manifest_tmp), "-I", str(android_jar), "-A", str(assets_dir), "-F", str(unsigned_apk)], desc="打包资源 (aapt - 回退模式)")
         
-        run_cmd([aapt, "add", str(unsigned_apk), "classes.dex"], cwd=classes_dex.parent)
-        run_cmd([zipalign, "-f", "-p", "4", str(unsigned_apk), str(aligned_apk)])
+        run_cmd([aapt, "add", str(unsigned_apk), "classes.dex"], cwd=classes_dex.parent, desc="添加 DEX 到 APK")
+        run_cmd([zipalign, "-f", "-p", "4", str(unsigned_apk), str(aligned_apk)], desc="优化 APK 对齐 (zipalign)")
 
         # 签名输出
         keystore = ensure_debug_keystore(base_dir)
@@ -323,7 +361,7 @@ def main():
             "--ks-key-alias", "androiddebugkey",
             "--out", str(temp_apk_path),
             str(aligned_apk)
-        ])
+        ], desc="签署 APK (apksigner)")
 
         if temp_apk_path.exists():
             if final_apk.exists():

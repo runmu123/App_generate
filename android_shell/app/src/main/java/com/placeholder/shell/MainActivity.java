@@ -16,6 +16,7 @@ public class MainActivity extends Activity {
      * @param savedInstanceState Activity 保存的状态
      */
     @Override
+    @SuppressWarnings("deprecation")
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 

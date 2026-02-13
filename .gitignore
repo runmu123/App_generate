@@ -2,6 +2,7 @@
 .idea/
 .vscode/
 .trae/
+.arts/
 *.iml
 *.swp
 *.swo
@@ -15,6 +16,7 @@ __pycache__/
 # Android / Gradle Build
 .gradle/
 build/
+sources/
 local.properties
 .DS_Store
 
@@ -40,3 +42,4 @@ debug.keystore
 temp.json
 dada_info.txt
 template_info.txt
+*.log

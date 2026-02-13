@@ -2,10 +2,10 @@
 # 修改此文件后运行 build_apk.py 即可生效
 
 # HTML 入口文件路径
-html: index.html
+html: sources/index.html
 
 # 应用图标路径
-icon: icon.png
+icon: sources/icon.png
 
 # 应用包名 (如 com.example.app)
 pkg: com.dada
