@@ -206,7 +206,7 @@ def main():
             print(f"[WARN] 加载配置文件失败: {e}")
 
     parser = argparse.ArgumentParser(description="静态 HTML 一键打包生成 APK")
-    parser.add_argument("--html", default=config.get("html", "index.html"), help="HTML 文件路径")
+    parser.add_argument("--source", default=config.get("source", config.get("html", "index.html")), help="HTML 文件路径或 URL 地址")
     parser.add_argument("--icon", default=config.get("icon", "icon.png"), help="图标文件路径")
     parser.add_argument("--pkg", default=config.get("pkg", "com.dada"), help="应用包名")
     parser.add_argument("--version", default=config.get("version", "v2.0"), help="版本名称")
@@ -214,12 +214,18 @@ def main():
     parser.add_argument("--out-dir", default=config.get("out_dir"), help="输出目录")
     args = parser.parse_args()
     
-    html_path = Path(args.html).resolve()
+    source = args.source
+    is_url = source.startswith("http://") or source.startswith("https://")
+    
+    html_path = None
+    if not is_url:
+        html_path = Path(source).resolve()
+        if not html_path.exists():
+            print(f"HTML 文件不存在：{html_path}")
+            sys.exit(1)
+            
     icon_path = Path(args.icon).resolve()
     
-    if not html_path.exists():
-        print(f"HTML 不存在：{html_path}")
-        sys.exit(1)
     if not icon_path.exists():
         print(f"图标不存在：{icon_path}")
         sys.exit(1)
@@ -227,9 +233,10 @@ def main():
     # 软件名称与输出目录
     app_name = args.name or "App"
     
-    out_dir = Path(args.out_dir).resolve() if args.out_dir else html_path.parent
+    out_dir = Path(args.out_dir).resolve() if args.out_dir else (html_path.parent if html_path else base_dir)
     ensure_dir(out_dir)
-    final_apk_name = f"{app_name}_{args.pkg}_{args.version}.apk"
+    pkg_name = args.pkg.split(".")[-1]
+    final_apk_name = f"{pkg_name}_{args.version}.apk"
     temp_build_name = f"build_temp_{args.pkg}.apk"
     final_apk = out_dir / final_apk_name
     build_dir = base_dir / "android_shell" / "build"
@@ -280,6 +287,13 @@ def main():
         
         if "android.permission.INTERNET" not in xml:
             xml = xml.replace("<application", '<uses-permission android:name="android.permission.INTERNET" />\n    <application')
+            
+        # 允许明文流量 (HTTP)
+        if 'android:usesCleartextTraffic="true"' not in xml:
+            if 'android:usesCleartextTraffic="false"' in xml:
+                xml = xml.replace('android:usesCleartextTraffic="false"', 'android:usesCleartextTraffic="true"')
+            elif '<application' in xml:
+                 xml = xml.replace('<application', '<application android:usesCleartextTraffic="true"')
         
         if 'android:icon=' not in xml:
             xml = xml.replace('<application', '<application android:icon="@mipmap/ic_launcher"')
@@ -309,7 +323,15 @@ def main():
         assets_dir = tmpdir / "assets"
         assets_www = assets_dir / "www"
         ensure_dir(assets_www)
-        shutil.copyfile(str(html_path), str(assets_www / "index.html"))
+        
+        # 只有在本地文件模式下才复制 HTML
+        if not is_url and html_path:
+            shutil.copyfile(str(html_path), str(assets_www / "index.html"))
+        elif is_url:
+            # URL 模式下创建一个简单的跳转页作为兜底，或者干脆空着
+            # 这里选择创建一个简单的跳转页，防止 MainActivity 加载本地失败（虽然我们会修改 MainActivity）
+            # 但为了保险起见，还是放一个 index.html
+            (assets_www / "index.html").write_text(f'<html><body><script>window.location.href="{source}";</script></body></html>', encoding="utf-8")
 
         res_dir = tmpdir / "res"
         ensure_dir(res_dir)
@@ -319,27 +341,39 @@ def main():
         unsigned_apk = tmpdir / "unsigned.apk"
 
         # 编译 Java → DEX
-        classes_dex = base_dir / "build" / "dex" / "classes.dex"
+        # 每次都重新编译，以确保 source 参数生效
+        src = shell_main / "java" / "com" / "placeholder" / "shell" / "MainActivity.java"
+        # 读取并修改 MainActivity.java
+        java_content = read_text(src)
         
-        if not classes_dex.exists():
-            src = shell_main / "java" / "com" / "placeholder" / "shell" / "MainActivity.java"
-            classes_dir = tmpdir / "classes"
-            ensure_dir(classes_dir)
-            run_cmd([
-                "javac", "-encoding", "UTF-8", "-source", "1.8", "-target", "1.8",
-                "-bootclasspath", str(android_jar),
-                "-classpath", str(android_jar),
-                "-d", str(classes_dir),
-                str(src)
-            ], desc="编译 Java 源码 (javac)")
-            dex_out = tmpdir / "dex"
-            ensure_dir(dex_out)
-            class_files = [str(p) for p in classes_dir.rglob("*.class")]
-            if not class_files:
-                print("未找到编译产生的 .class 文件")
-                sys.exit(1)
-            run_cmd([d8, "--lib", str(android_jar), "--min-api", "21", "--output", str(dex_out)] + class_files, desc="转换 DEX 字节码 (d8)")
-            classes_dex = dex_out / "classes.dex"
+        # 替换加载 URL
+        target_url = source if is_url else "file:///android_asset/www/index.html"
+        # 替换 loadUrl 中的内容
+        java_content = re.sub(r'webView\.loadUrl\(".*?"\);', f'webView.loadUrl("{target_url}");', java_content)
+        
+        # 写入到临时目录进行编译，避免修改源文件
+        src_tmp_dir = tmpdir / "java_src" / "com" / "placeholder" / "shell"
+        ensure_dir(src_tmp_dir)
+        src_tmp = src_tmp_dir / "MainActivity.java"
+        write_text(src_tmp, java_content)
+        
+        classes_dir = tmpdir / "classes"
+        ensure_dir(classes_dir)
+        run_cmd([
+            "javac", "-encoding", "UTF-8", "-source", "1.8", "-target", "1.8",
+            "-bootclasspath", str(android_jar),
+            "-classpath", str(android_jar),
+            "-d", str(classes_dir),
+            str(src_tmp)
+        ], desc="编译 Java 源码 (javac)")
+        dex_out = tmpdir / "dex"
+        ensure_dir(dex_out)
+        class_files = [str(p) for p in classes_dir.rglob("*.class")]
+        if not class_files:
+            print("未找到编译产生的 .class 文件")
+            sys.exit(1)
+        run_cmd([d8, "--lib", str(android_jar), "--min-api", "21", "--output", str(dex_out)] + class_files, desc="转换 DEX 字节码 (d8)")
+        classes_dex = dex_out / "classes.dex"
 
         # aapt 打包 + 添加 dex
         try:

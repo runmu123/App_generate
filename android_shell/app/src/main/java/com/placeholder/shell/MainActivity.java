@@ -10,6 +10,9 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import android.webkit.SslErrorHandler;
+import android.net.http.SslError;
+
 public class MainActivity extends Activity {
     /**
      * 初始化并展示 WebView，加载本地 assets 中的 index.html
@@ -41,8 +44,23 @@ public class MainActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setAllowFileAccess(true);
         settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+        settings.setUseWideViewPort(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        
+        // 允许混合内容 (HTTPS 页面加载 HTTP 资源)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
 
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                // 忽略 SSL 证书错误，允许继续加载 (仅用于调试或自签证书场景)
+                handler.proceed();
+            }
+        });
         webView.loadUrl("file:///android_asset/www/index.html");
     }
 }
